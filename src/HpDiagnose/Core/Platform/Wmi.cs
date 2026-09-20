@@ -115,6 +115,36 @@ namespace HpDiagnose.Core.Platform
             return liste.Count > 0 ? liste[0] : null;
         }
 
+        /// <summary>
+        /// Stellt die Helligkeit des eingebauten Bildschirms in Prozent ein.
+        /// Liefert false, wenn das Gerät keine Steuerung über WMI bietet.
+        /// </summary>
+        public static bool Helligkeit(int prozent)
+        {
+            try
+            {
+                var wert = (byte)Math.Clamp(prozent, 0, 100);
+                using var sucher = new ManagementObjectSearcher(
+                    new ManagementScope(@"root\wmi"), new ObjectQuery("SELECT * FROM WmiMonitorBrightnessMethods"));
+
+                bool gesetzt = false;
+                foreach (ManagementObject o in sucher.Get())
+                {
+                    using (o)
+                    {
+                        // Erster Parameter: Zeit in Sekunden, bis der Wert gilt.
+                        o.InvokeMethod("WmiSetBrightness", new object[] { (uint)1, wert });
+                        gesetzt = true;
+                    }
+                }
+                return gesetzt;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         /// <summary>Prüft, ob ein WMI-Namensraum überhaupt existiert (z. B. HP-BIOS).</summary>
         public static bool BereichVorhanden(string bereich)
         {

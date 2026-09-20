@@ -79,6 +79,12 @@ jobs:
               exit 1
           }
 
+          dotnet run --project tests/Lastprobe -c Release
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Die Prüfung des Lasterzeugers ist fehlgeschlagen – es wird nichts veröffentlicht."
+              exit 1
+          }
+
       - name: Beispielbericht erzeugen
         shell: pwsh
         run: |
@@ -165,16 +171,36 @@ jobs:
               'build/HP-Diagnose.exe.sha256',
               'Beispielbericht.pdf',
               '--title', "Notebook-Diagnose $marke",
-              '--notes-file', 'beschreibung.md'
+              '--notes-file', 'beschreibung.md',
+              # Die Marke soll auf genau den Commit zeigen, aus dem gebaut
+              # wurde – ohne diese Angabe nähme gh den Kopf des Hauptzweigs.
+              # Besteht die Marke schon (Auslösung über eine Marke), ist die
+              # Angabe wirkungslos.
+              '--target', '${{ github.sha }}'
           )
 
           if ($entwurf) { $argumente += '--draft' }
           if ('${{ steps.version.outputs.vorab }}' -eq 'true') { $argumente += '--prerelease' }
 
-          # Bei einem erneuten Lauf für dieselbe Marke die alte Veröffentlichung
-          # entfernen. Die Marke selbst bleibt bestehen, denn sie hat den Lauf
-          # ausgelöst. Alle Ausgaben werden verworfen, weil ein fehlender
-          # Eintrag hier der Normalfall ist.
+          # Bei einem erneuten Lauf für dieselbe Marke alte Einträge entfernen.
+          # Entwürfe tragen noch keine Marke und sind für "gh release view"
+          # unsichtbar, deshalb werden sie über die Schnittstelle gesucht.
+          # Die Marke selbst bleibt bestehen, denn sie hat den Lauf ausgelöst.
+          # Der Filter wird aus einfach umschlossenen Teilen zusammengesetzt,
+          # weil PowerShell in doppelten Anführungszeichen keine \" kennt.
+          $filter = '.[] | select(.draft and .tag_name == "' + $marke + '") | .id'
+          $entwuerfe = gh api "repos/${{ github.repository }}/releases?per_page=100" --jq $filter
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "Suche nach alten Entwürfen übersprungen, gh meldete Fehler $LASTEXITCODE."
+              $entwuerfe = ''
+          }
+
+          foreach ($id in ($entwuerfe -split "`r?`n" | Where-Object { $_ -match '^\d+$' })) {
+              Write-Host "Alter Entwurf $id zur Marke $marke wird entfernt."
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id" | Out-Null
+          }
+
           gh release view $marke *> $null
           if ($LASTEXITCODE -eq 0) {
               Write-Host "Veröffentlichung $marke besteht bereits und wird ersetzt."
@@ -182,16 +208,22 @@ jobs:
           }
 
           # Die Unterbefehle stehen bereits in der Liste, deshalb wird sie
-          # vollständig an gh übergeben.
+          # vollständig an gh übergeben. gh gibt die Adresse des Eintrags aus –
+          # bei einem Entwurf ist das eine vorläufige Adresse ohne Marke.
           Write-Host "Aufruf: gh $($argumente -join ' ')"
-          gh @argumente
+          $adresse = gh @argumente
 
           if ($LASTEXITCODE -ne 0) {
               Write-Error "Die Veröffentlichung konnte nicht angelegt werden."
               exit 1
           }
 
-          Write-Host "Fertig: https://github.com/${{ github.repository }}/releases/tag/$marke"
+          if ($entwurf) {
+              Write-Host "Fertig als Entwurf: $adresse"
+              Write-Host "Der Entwurf ist nur für Mitarbeiter des Verzeichnisses sichtbar und muss dort veröffentlicht werden."
+          } else {
+              Write-Host "Fertig: $adresse"
+          }
 
       - name: Ergebnis zusätzlich als Artefakt ablegen
         uses: actions/upload-artifact@v4

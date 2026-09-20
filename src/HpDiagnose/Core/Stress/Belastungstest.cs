@@ -28,12 +28,25 @@ namespace HpDiagnose.Core.Stress
         public int LeistungMw { get; set; }
         public int SpannungMv { get; set; }
         public bool UnterLast { get; set; }
+
+        /// <summary>Stand der erzeugten Last zum Zeitpunkt der Messung.</summary>
+        public Laststand? Last { get; set; }
     }
 
     /// <summary>Das Ergebnis eines abgeschlossenen Belastungstests.</summary>
     public sealed class Testergebnis
     {
         public Testart Art { get; set; }
+
+        /// <summary>Welche Bauteile während des Tests belastet wurden.</summary>
+        public Lastquelle Quellen { get; set; }
+
+        /// <summary>Zähler des Lasterzeugers am Ende des Tests.</summary>
+        public Laststand? Last { get; set; }
+
+        /// <summary>Höchste während des Tests gemessene Temperatur, falls lesbar.</summary>
+        public double? HoechsteTemperatur { get; set; }
+
         public DateTime Beginn { get; set; }
         public DateTime Ende { get; set; }
         public List<Stressmessung> Messreihe { get; } = new List<Stressmessung>();
@@ -68,16 +81,24 @@ namespace HpDiagnose.Core.Stress
     /// Spannung ein, das Gerät schaltet ab, obwohl die Anzeige noch Restladung
     /// zeigt.
     ///
+    /// Die Last wird vom <see cref="Lasterzeuger"/> eigens erzeugt: Rechenlast
+    /// auf allen Kernen, Speicherdurchsatz, eine Datei mit Zufallsdaten auf dem
+    /// Datenträger und der Bildschirm auf voller Helligkeit. Welche Bauteile
+    /// beteiligt sind, lässt sich wählen.
+    ///
     /// Sicherheit: Der Test bricht bei 20 Prozent Restladung ab, um eine
-    /// schädliche Tiefentladung zu vermeiden, und läuft nur im Akkubetrieb.
+    /// schädliche Tiefentladung zu vermeiden, läuft nur im Akkubetrieb und
+    /// endet, wenn das Gerät zu heiß wird.
     /// </summary>
     public sealed class Belastungstest
     {
         private volatile bool _abbruch;
-        private volatile bool _lastAktiv;
 
         /// <summary>Untergrenze, ab der der Test abbricht.</summary>
         public double MindestLadestand { get; set; } = 20;
+
+        /// <summary>Temperatur in Grad Celsius, ab der der Test aus Vorsicht endet.</summary>
+        public double HoechstTemperatur { get; set; } = 98;
 
         public event Action<Stressmessung>? NeueMessung;
         public event Action<string>? Statusmeldung;
@@ -85,13 +106,30 @@ namespace HpDiagnose.Core.Stress
         public void Abbrechen() => _abbruch = true;
 
         public Task<Testergebnis> StarteAsync(Testart art, int dauerMinuten, CancellationToken abbruchZeichen = default)
-            => Task.Run(() => Starte(art, dauerMinuten, abbruchZeichen), abbruchZeichen);
+            => StarteAsync(art, dauerMinuten, Lastquelle.Alle, abbruchZeichen);
+
+        public Task<Testergebnis> StarteAsync(Testart art, int dauerMinuten, Lastquelle quellen, CancellationToken abbruchZeichen = default)
+            => Task.Run(() => Starte(art, dauerMinuten, quellen, abbruchZeichen), abbruchZeichen);
 
         public Testergebnis Starte(Testart art, int dauerMinuten, CancellationToken abbruchZeichen = default)
+            => Starte(art, dauerMinuten, Lastquelle.Alle, abbruchZeichen);
+
+        /// <summary>Welche Bauteile bei welcher Testart tatsächlich belastet werden.</summary>
+        public static Lastquelle WirksameQuellen(Testart art, Lastquelle gewuenscht) => art switch
+        {
+            // Der Leerlauftest darf nichts belasten – er zeigt den Grundverbrauch.
+            Testart.Leerlauf => Lastquelle.Keine,
+            // Im Alltag wechseln sich Rechnen und Lesen ab; Bildschirm ist immer an.
+            Testart.Alltag => (gewuenscht & (Lastquelle.Prozessor | Lastquelle.Bildschirm)) | Lastquelle.Bildschirm,
+            _ => gewuenscht
+        };
+
+        public Testergebnis Starte(Testart art, int dauerMinuten, Lastquelle quellen, CancellationToken abbruchZeichen = default)
         {
             _abbruch = false;
 
-            var ergebnis = new Testergebnis { Art = art, Beginn = DateTime.Now };
+            var wirksam = WirksameQuellen(art, quellen);
+            var ergebnis = new Testergebnis { Art = art, Quellen = wirksam, Beginn = DateTime.Now };
             var akku = AkkuLeser.Lies();
 
             if (!akku.Vorhanden)
@@ -122,26 +160,22 @@ namespace HpDiagnose.Core.Stress
             var startProzent = akku.LadestandProzent ?? 0;
             var startMwh = akku.RestKapazitaetMwh ?? 0;
 
-            // Lasterzeuger vorbereiten
-            var lastThreads = new List<Thread>();
-            if (art != Testart.Leerlauf)
-            {
-                Statusmeldung?.Invoke("Erzeuge Rechenlast auf allen Prozessorkernen …");
-                _lastAktiv = true;
+            // Lasterzeuger vorbereiten. Auch im Leerlauf läuft er mit, ohne
+            // Quellen: Er hält dann nur das Gerät wach, damit es nicht mitten
+            // in der Messung einschläft.
+            using var erzeuger = new Lasterzeuger();
+            erzeuger.Meldung += text => Statusmeldung?.Invoke(text);
 
-                for (int i = 0; i < Environment.ProcessorCount; i++)
-                {
-                    var t = new Thread(Rechenlast) { IsBackground = true, Priority = ThreadPriority.BelowNormal };
-                    t.Start();
-                    lastThreads.Add(t);
-                }
-            }
+            if (wirksam != Lastquelle.Keine)
+                Statusmeldung?.Invoke("Last wird erzeugt …");
+            erzeuger.Starten(wirksam);
 
             try
             {
                 var ende = DateTime.Now.AddMinutes(dauerMinuten);
                 var letzteUmschaltung = DateTime.Now;
                 bool lastPhase = art != Testart.Leerlauf;
+                var letzteTemperatur = DateTime.MinValue;
 
                 while (DateTime.Now < ende)
                 {
@@ -156,7 +190,7 @@ namespace HpDiagnose.Core.Stress
                     if (art == Testart.Alltag && (DateTime.Now - letzteUmschaltung).TotalSeconds >= (lastPhase ? 120 : 60))
                     {
                         lastPhase = !lastPhase;
-                        _lastAktiv = lastPhase;
+                        erzeuger.LastPhase = lastPhase;
                         letzteUmschaltung = DateTime.Now;
                         Statusmeldung?.Invoke(lastPhase ? "Lastphase …" : "Ruhephase …");
                     }
@@ -177,7 +211,8 @@ namespace HpDiagnose.Core.Stress
                         Mwh = akku.RestKapazitaetMwh ?? 0,
                         LeistungMw = akku.EntladeleistungMw ?? 0,
                         SpannungMv = akku.SpannungMv ?? 0,
-                        UnterLast = _lastAktiv
+                        UnterLast = lastPhase && wirksam != Lastquelle.Keine,
+                        Last = wirksam != Lastquelle.Keine ? erzeuger.Stand() : null
                     };
 
                     ergebnis.Messreihe.Add(messung);
@@ -191,6 +226,23 @@ namespace HpDiagnose.Core.Stress
                         break;
                     }
 
+                    // Alle 30 Sekunden auf Überhitzung prüfen.
+                    if ((DateTime.Now - letzteTemperatur).TotalSeconds >= 30)
+                    {
+                        letzteTemperatur = DateTime.Now;
+                        var temperatur = HoechsteTemperaturLesen();
+                        if (temperatur.HasValue)
+                        {
+                            ergebnis.HoechsteTemperatur = Math.Max(ergebnis.HoechsteTemperatur ?? 0, temperatur.Value);
+                            if (temperatur.Value >= HoechstTemperatur)
+                            {
+                                ergebnis.Abbruchgrund =
+                                    $"Der Test wurde bei {temperatur.Value:0} °C beendet, um das Gerät nicht zu überhitzen.";
+                                break;
+                            }
+                        }
+                    }
+
                     Thread.Sleep(5000);
                 }
 
@@ -202,11 +254,12 @@ namespace HpDiagnose.Core.Stress
             }
             finally
             {
-                _lastAktiv = false;
-                foreach (var t in lastThreads)
+                if (wirksam != Lastquelle.Keine)
                 {
-                    try { t.Join(500); } catch { }
+                    Statusmeldung?.Invoke("Last wird abgebaut …");
+                    ergebnis.Last = erzeuger.Stand();
                 }
+                erzeuger.Beenden();
             }
 
             ergebnis.Ende = DateTime.Now;
@@ -214,19 +267,27 @@ namespace HpDiagnose.Core.Stress
             return ergebnis;
         }
 
-        /// <summary>Erzeugt gleichmäßige Rechenlast, solange der Test läuft.</summary>
-        private void Rechenlast()
+        private static double? HoechsteTemperaturLesen()
         {
-            var zufall = new Random();
-            double wert = zufall.NextDouble();
-
-            while (_lastAktiv)
+            try
             {
-                // Gleitkommaoperationen belasten den Prozessor realistisch.
-                for (int i = 0; i < 200000; i++)
-                    wert = Math.Sqrt(wert * 1.0000001 + 1.0);
-
-                if (wert > 1e12) wert = zufall.NextDouble();
+                double? max = null;
+                foreach (var zone in Platform.Wmi.Abfrage("MSAcpi_ThermalZoneTemperature", @"root\wmi"))
+                {
+                    var roh = zone.Kommazahl("CurrentTemperature");
+                    if (roh is > 0)
+                    {
+                        // Der Wert kommt in Zehntel-Kelvin.
+                        var celsius = roh.Value / 10.0 - 273.15;
+                        if (celsius is > 0 and < 150 && (!max.HasValue || celsius > max))
+                            max = celsius;
+                    }
+                }
+                return max;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -267,6 +328,17 @@ namespace HpDiagnose.Core.Stress
                 e.EffektiveKapazitaetMwh = (int)Math.Round(e.MwhVerbraucht / e.ProzentVerbraucht * 100.0);
         }
 
+        public static string QuellenText(Lastquelle quellen)
+        {
+            if (quellen == Lastquelle.Keine) return "keine – Leerlauf";
+            var teile = new List<string>();
+            if (quellen.HasFlag(Lastquelle.Prozessor)) teile.Add("Prozessor");
+            if (quellen.HasFlag(Lastquelle.Arbeitsspeicher)) teile.Add("Arbeitsspeicher");
+            if (quellen.HasFlag(Lastquelle.Datentraeger)) teile.Add("Datenträger");
+            if (quellen.HasFlag(Lastquelle.Bildschirm)) teile.Add("Bildschirm");
+            return string.Join(", ", teile);
+        }
+
         /// <summary>Leitet aus dem Testergebnis Befunde für den Bericht ab.</summary>
         public static void Bewerte(DiagnoseKontext k, Testergebnis e, AkkuDaten akku)
         {
@@ -286,16 +358,60 @@ namespace HpDiagnose.Core.Stress
                 _ => "Alltagstest"
             };
 
-            k.Hinzu("STRESS-ERGEBNIS", "Belastungstest", Severity.Info, $"{artText} durchgeführt")
+            var ergebnisBefund = k.Hinzu("STRESS-ERGEBNIS", "Belastungstest", Severity.Info, $"{artText} durchgeführt")
                 .MitBefund($"{e.Dauerminuten:0.#} Minuten, {e.ProzentVerbraucht:0.#} Prozentpunkte verbraucht " +
-                           $"({e.MwhVerbraucht} mWh), mittlere Leistungsaufnahme {e.MittlereLeistungMw} mW.")
+                           $"({e.MwhVerbraucht} mWh), mittlere Leistungsaufnahme {e.MittlereLeistungMw} mW." +
+                           (e.Last != null ? $" Erzeugte Last: {e.Last.Kurztext()}." : ""))
                 .MitBedeutung("Der Test zeigt, was der Akku unter realer Belastung tatsächlich leistet.")
                 .MitMesswert("Testart", artText)
+                .MitMesswert("Belastete Bauteile", QuellenText(e.Quellen))
                 .MitMesswert("Dauer", $"{e.Dauerminuten:0.#} Minuten")
                 .MitMesswert("Verbrauch", $"{e.ProzentVerbraucht:0.#} Prozentpunkte / {e.MwhVerbraucht} mWh")
                 .MitMesswert("Mittlere Leistung", $"{e.MittlereLeistungMw} mW")
                 .MitMesswert("Höchste Leistung", $"{e.HoechsteLeistungMw} mW")
                 .MitMesswert("Abschluss", e.Abbruchgrund);
+
+            if (e.Last != null)
+            {
+                foreach (var (name, wert) in e.Last.Messwerte())
+                    ergebnisBefund.MitMesswert(name, wert);
+            }
+
+            if (e.HoechsteTemperatur.HasValue)
+                ergebnisBefund.MitMesswert("Höchste Temperatur", $"{e.HoechsteTemperatur:0} °C");
+
+            // ---- Hat die Last überhaupt angelegen? -----------------------
+            if (e.Last != null && e.Quellen.HasFlag(Lastquelle.Prozessor) &&
+                e.Art == Testart.Volllast && e.Last.EigeneAuslastungProzent is > 0 and < 60)
+            {
+                k.Hinzu("STRESS-LAST-GEDROSSELT", "Belastungstest", Severity.Warnung,
+                        "Der Prozessor ließ sich nicht voll auslasten")
+                    .MitBefund($"Der Test belegte nur {e.Last.EigeneAuslastungProzent:0} Prozent der Prozessorzeit, " +
+                               "obwohl alle Kerne dauerhaft beschäftigt wurden.")
+                    .MitBedeutung(
+                        "Entweder drosselt das Gerät im Akkubetrieb den Prozessor stark, oder ein anderes " +
+                        "Programm hat den Prozessor zeitgleich belegt. Die gemessene Leistungsaufnahme fällt " +
+                        "dann niedriger aus als bei echter Volllast.")
+                    .MitEmpfehlung("Andere Programme schließen, im Energieplan Höchstleistung wählen und den Test wiederholen.");
+            }
+
+            if (e.Last != null && e.Last.SpeicherFehler > 0)
+            {
+                k.Hinzu("STRESS-SPEICHERFEHLER", "Belastungstest", Severity.Kritisch,
+                        "Speicherfehler unter Last")
+                    .MitBefund($"{e.Last.SpeicherFehler:N0} Speicherstellen lieferten unter Last nicht zurück, was geschrieben wurde.")
+                    .MitBedeutung("Das ist ein Hardwarefehler des Arbeitsspeichers, der zu Abstürzen und Datenverlust führt.")
+                    .MitEmpfehlung("Windows-Speicherdiagnose ausführen und den betroffenen Riegel tauschen.");
+            }
+
+            if (e.Last != null && e.Last.DatentraegerFehler > 0)
+            {
+                k.Hinzu("STRESS-DATENFEHLER", "Belastungstest", Severity.Kritisch,
+                        "Lesefehler auf dem Datenträger unter Last")
+                    .MitBefund($"{e.Last.DatentraegerFehler:N0} Datenblöcke kamen anders zurück, als sie geschrieben wurden.")
+                    .MitBedeutung("Der Datenträger liefert unter Last falsche Daten – ein ernstes Warnzeichen.")
+                    .MitEmpfehlung("Sofort sichern und die Selbstdiagnose des Datenträgers prüfen.");
+            }
 
             // ---- Hochgerechnete Laufzeit ---------------------------------
             if (e.LaufzeitStunden.HasValue && e.Art != Testart.Leerlauf)

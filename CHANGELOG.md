@@ -3,6 +3,32 @@
 Diese Datei hält fest, was sich zwischen den Fassungen geändert hat.
 Die Versionsnummern folgen dem Muster `HAUPT.NEBEN.KORREKTUR`.
 
+## 1.1.0
+
+### Belastungstest
+
+* Der Test erzeugt jetzt echte Last statt einer leichten Rechenschleife mit
+  niedriger Priorität. Ein neuer Lasterzeuger belastet wahlweise Prozessor
+  (alle Kerne mit Gleitkomma-, Vektor- und Ganzzahlrechnung), Arbeitsspeicher
+  (bis 2 GB im Umlauf, mit Prüfung), Datenträger (512 MB eigens erzeugte
+  Zufallsdaten schreiben, zurücklesen, vergleichen) und Bildschirm (volle
+  Helligkeit, nachher wiederhergestellt).
+* Die belasteten Bauteile lassen sich vor dem Start auswählen. Beim
+  Alltagstest wechseln Rechen- und Ruhephasen, der Leerlauftest belastet nichts.
+* Während des Tests ist sichtbar, welche Last tatsächlich anliegt: Auslastung
+  durch den Test, Speicherdurchsatz, geschriebene und gelesene Datenmenge.
+* Neue Befunde: Prozessor ließ sich nicht auslasten (Drosselung oder fremde
+  Last), Speicherfehler unter Last, Lesefehler auf dem Datenträger unter Last.
+* Der Test endet bei Überhitzung von selbst; die höchste Temperatur steht im
+  Bericht.
+* Zur Schonung: höchstens ein Viertel des freien Arbeitsspeichers, höchstens
+  4 GB Schreibleistung je Test, Abbruch weiterhin bei 20 Prozent Ladestand.
+
+### Veröffentlichung
+
+* Der Ablauf ersetzt alte Entwürfe zur selben Marke, setzt die Marke auf den
+  gebauten Commit und übergibt den Suchfilter korrekt an gh.
+
 ## 1.0.0
 
 Erste Fassung als eigenständiges Windows-Programm mit grafischer Oberfläche.

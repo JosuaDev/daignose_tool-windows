@@ -36,6 +36,11 @@ namespace HpDiagnose.Ui.Pages
         private readonly NumericUpDown _testDauer = new NumericUpDown();
         private readonly FlachSchaltflaeche _testStart = new FlachSchaltflaeche();
         private readonly FlachSchaltflaeche _testStopp = new FlachSchaltflaeche();
+        private readonly Label _testLast = new Label();
+        private readonly CheckBox _lastProzessor = new CheckBox();
+        private readonly CheckBox _lastSpeicher = new CheckBox();
+        private readonly CheckBox _lastDatentraeger = new CheckBox();
+        private readonly CheckBox _lastBildschirm = new CheckBox();
         private Belastungstest? _laufenderTest;
         private CancellationTokenSource? _testAbbruch;
 
@@ -297,8 +302,12 @@ namespace HpDiagnose.Ui.Pages
                 "Der Belastungstest misst, was der Akku unter echter Last leistet. Das ist aussagekräftiger als " +
                 "die gemeldete Kapazität, weil ein gealterter Akku vor allem am Innenwiderstand scheitert: Unter " +
                 "Last bricht die Spannung ein und das Gerät schaltet ab, obwohl die Anzeige noch Restladung zeigt.\n\n" +
+                "Die Last wird vom Programm selbst erzeugt: Rechenarbeit auf allen Prozessorkernen, ein großer " +
+                "Speicherbereich, der fortlaufend beschrieben und geprüft wird, eine Datei mit Zufallsdaten, die " +
+                "geschrieben, zurückgelesen und verglichen wird, und der Bildschirm auf voller Helligkeit. " +
+                "Nach dem Test wird alles wieder aufgeräumt, die Helligkeit kehrt zum vorherigen Wert zurück.\n\n" +
                 "Wichtig: Für den Test muss das Netzteil abgezogen sein. Der Test endet automatisch bei " +
-                "20 Prozent Ladestand, damit der Akku nicht tiefentladen wird.", 880));
+                "20 Prozent Ladestand, damit der Akku nicht tiefentladen wird, und bei Überhitzung.", 880));
 
             var einstellungen = new FlowLayoutPanel
             {
@@ -339,6 +348,39 @@ namespace HpDiagnose.Ui.Pages
             _testDauer.Margin = new Padding(0, 6, 16, 0);
             einstellungen.Controls.Add(_testDauer);
 
+            _testInhalt.Controls.Add(einstellungen);
+
+            var quellen = new FlowLayoutPanel
+            {
+                Width = 880, AutoSize = true, FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true, BackColor = Design.Hintergrund, Margin = new Padding(0, 0, 0, 8)
+            };
+
+            quellen.Controls.Add(new Label
+            {
+                Text = "Belastete Bauteile:", Font = Design.Standard, ForeColor = Design.Text,
+                AutoSize = true, Margin = new Padding(0, 6, 8, 0)
+            });
+
+            RichteLastwahl(_lastProzessor, "Prozessor – alle Kerne", true);
+            RichteLastwahl(_lastSpeicher, "Arbeitsspeicher – bis 2 GB im Umlauf", true);
+            RichteLastwahl(_lastDatentraeger, "Datenträger – 512 MB Zufallsdaten schreiben und prüfen", true);
+            RichteLastwahl(_lastBildschirm, "Bildschirm – volle Helligkeit", true);
+            quellen.Controls.Add(_lastProzessor);
+            quellen.Controls.Add(_lastSpeicher);
+            quellen.Controls.Add(_lastDatentraeger);
+            quellen.Controls.Add(_lastBildschirm);
+
+            _testInhalt.Controls.Add(quellen);
+            _testArt.SelectedIndexChanged += (_, _) => LastwahlAnpassen();
+            LastwahlAnpassen();
+
+            einstellungen = new FlowLayoutPanel
+            {
+                Width = 880, AutoSize = true, FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true, BackColor = Design.Hintergrund, Margin = new Padding(0, 0, 0, 8)
+            };
+
             _testStart.Beschriftung = "Test starten";
             _testStart.Width = 170;
             _testStart.Height = 38;
@@ -363,8 +405,15 @@ namespace HpDiagnose.Ui.Pages
             _testStatus.ForeColor = Design.TextLeise;
             _testStatus.MaximumSize = new Size(880, 0);
             _testStatus.AutoSize = true;
-            _testStatus.Margin = new Padding(0, 4, 0, 8);
+            _testStatus.Margin = new Padding(0, 4, 0, 4);
             _testInhalt.Controls.Add(_testStatus);
+
+            _testLast.Font = Design.Klein;
+            _testLast.ForeColor = Design.TextLeise;
+            _testLast.MaximumSize = new Size(880, 0);
+            _testLast.AutoSize = true;
+            _testLast.Margin = new Padding(0, 0, 0, 8);
+            _testInhalt.Controls.Add(_testLast);
 
             _testkurve.Width = 880;
             _testkurve.Height = 260;
@@ -372,18 +421,63 @@ namespace HpDiagnose.Ui.Pages
             _testInhalt.Controls.Add(_testkurve);
         }
 
+        private void RichteLastwahl(CheckBox kasten, string text, bool an)
+        {
+            kasten.Text = text;
+            kasten.Checked = an;
+            kasten.Font = Design.Standard;
+            kasten.ForeColor = Design.Text;
+            kasten.AutoSize = true;
+            kasten.Margin = new Padding(0, 6, 16, 0);
+        }
+
+        private Testart GewaehlteTestart() => _testArt.SelectedIndex switch
+        {
+            0 => Testart.Leerlauf,
+            1 => Testart.Volllast,
+            _ => Testart.Alltag
+        };
+
+        private Lastquelle GewaehlteQuellen()
+        {
+            var quellen = Lastquelle.Keine;
+            if (_lastProzessor.Checked) quellen |= Lastquelle.Prozessor;
+            if (_lastSpeicher.Checked) quellen |= Lastquelle.Arbeitsspeicher;
+            if (_lastDatentraeger.Checked) quellen |= Lastquelle.Datentraeger;
+            if (_lastBildschirm.Checked) quellen |= Lastquelle.Bildschirm;
+            return quellen;
+        }
+
+        /// <summary>Nur die Bauteile anbieten, die bei der gewählten Testart eine Rolle spielen.</summary>
+        private void LastwahlAnpassen()
+        {
+            var art = GewaehlteTestart();
+            bool leerlauf = art == Testart.Leerlauf;
+            bool alltag = art == Testart.Alltag;
+
+            _lastProzessor.Enabled = !leerlauf;
+            _lastBildschirm.Enabled = !leerlauf && !alltag;
+            _lastSpeicher.Enabled = !leerlauf && !alltag;
+            _lastDatentraeger.Enabled = !leerlauf && !alltag;
+        }
+
         private async void TestStarten()
         {
-            var art = _testArt.SelectedIndex switch
+            var art = GewaehlteTestart();
+            var quellen = GewaehlteQuellen();
+
+            if (art != Testart.Leerlauf && Belastungstest.WirksameQuellen(art, quellen) == Lastquelle.Keine)
             {
-                0 => Testart.Leerlauf,
-                1 => Testart.Volllast,
-                _ => Testart.Alltag
-            };
+                _testStatus.Text = "Bitte mindestens ein Bauteil auswählen, das belastet werden soll.";
+                return;
+            }
 
             _testStart.Enabled = false;
             _testStopp.Enabled = true;
             _testStatus.Text = "Der Test läuft …";
+            _testLast.Text = art == Testart.Leerlauf
+                ? "Leerlauf: keine zusätzliche Last, das Gerät wird nur wach gehalten."
+                : "Belastet: " + Belastungstest.QuellenText(Belastungstest.WirksameQuellen(art, quellen));
 
             _testkurve.Reihen.Clear();
             var ladung = new Liniendiagramm.Reihe { Name = "Ladestand in Prozent", Farbe = Design.Marine, MaximumY = 100 };
@@ -407,13 +501,16 @@ namespace HpDiagnose.Ui.Pages
                     $"Laufzeit {minute:0.#} Minuten · Ladestand {m.Prozent:0.#} Prozent · " +
                     $"Leistungsaufnahme {m.LeistungMw / 1000.0:0.#} Watt · " +
                     $"Spannung {m.SpannungMv / 1000.0:0.00} Volt";
+
+                if (m.Last != null)
+                    _testLast.Text = (m.UnterLast ? "Erzeugte Last: " : "Ruhephase – Last: ") + m.Last.Kurztext();
             });
 
             _laufenderTest.Statusmeldung += text => BeiUiFaden(() => _testStatus.Text = text);
 
             try
             {
-                var ergebnis = await _laufenderTest.StarteAsync(art, (int)_testDauer.Value, _testAbbruch.Token);
+                var ergebnis = await _laufenderTest.StarteAsync(art, (int)_testDauer.Value, quellen, _testAbbruch.Token);
                 Sitzung.Belastungstest = ergebnis;
 
                 if (Sitzung.Kontext != null)
@@ -443,6 +540,8 @@ namespace HpDiagnose.Ui.Pages
                 }
 
                 _testStatus.Text = string.Join(" ", zusammenfassung);
+                if (ergebnis.Last != null)
+                    _testLast.Text = "Erzeugte Last insgesamt: " + ergebnis.Last.Kurztext();
             }
             catch (Exception ex)
             {
