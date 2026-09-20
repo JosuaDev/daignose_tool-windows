@@ -277,20 +277,41 @@ namespace HpDiagnose.Core.Checks
 
             k.Melde("Messe Leistungsaufnahme …");
             var werte = new System.Collections.Generic.List<int>();
-            for (int i = 0; i < 5; i++)
+
+            // Meldet der Akku die Rate selbst, reichen wenige Sekunden. Sonst
+            // muss die Restkapazität erst messbar sinken – dafür bis zu 40
+            // Sekunden warten, bevor aufgegeben wird.
+            for (int i = 0; i < 27; i++)
             {
                 AkkuLeser.LiesMesswerte(a);
                 if ((a.EntladeleistungMw ?? 0) > 0) werte.Add(a.EntladeleistungMw!.Value);
+                if (werte.Count >= 5) break;
+                if (i > 0 && i % 5 == 0 && werte.Count == 0)
+                    k.Melde("Der Akku meldet keine Leistungsaufnahme – berechne sie aus der Kapazitätsänderung …");
                 System.Threading.Thread.Sleep(1500);
             }
 
-            if (werte.Count == 0) return;
+            if (werte.Count == 0)
+            {
+                k.Hinzu("AKKU-LEISTUNG-NICHT-GEMELDET", "Akku", Severity.Info,
+                        "Der Akku meldet keine Leistungsaufnahme")
+                    .MitBefund(
+                        "Die Akkuschnittstelle liefert keinen Wert für die Entladeleistung, und die Restkapazität " +
+                        "hat sich in 40 Sekunden nicht messbar geändert.")
+                    .MitBedeutung(
+                        "Manche Akkus und Treiber melden die Rate nicht oder nur in groben Stufen. Das ist kein " +
+                        "Fehler des Akkus. Im Belastungstest wird die Leistungsaufnahme dann aus dem Rückgang der " +
+                        "Restkapazität über die Laufzeit berechnet.")
+                    .MitEmpfehlung("Belastungstest mit mindestens zehn Minuten Dauer ausführen.");
+                return;
+            }
 
             var mittel = (int)werte.Average();
             var laufzeit = a.RestKapazitaetMwh.HasValue && mittel > 0
                 ? Math.Round(a.RestKapazitaetMwh.Value / (double)mittel, 1) : (double?)null;
 
             var text = $"{mittel:N0} mW mittlere Leistungsaufnahme".Replace(",", ".");
+            if (a.LeistungsQuelle == "berechnet") text += " (aus der Kapazitätsänderung berechnet)";
             if (laufzeit.HasValue) text += $", rechnerisch noch {laufzeit:0.#} Stunden Laufzeit";
 
             if (mittel > 25000)

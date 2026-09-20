@@ -18,7 +18,7 @@
     <Product>HP Notebook Diagnose</Product>
     <AssemblyTitle>HP Notebook Diagnose</AssemblyTitle>
     <Description>Diagnose für Akku, Energieverwaltung, Updates und Hardware von Windows-Notebooks</Description>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <NeutralLanguage>de-DE</NeutralLanguage>
     <SatelliteResourceLanguages>de;en</SatelliteResourceLanguages>
     <PublishSingleFile>true</PublishSingleFile>

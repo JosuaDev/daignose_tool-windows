@@ -11,7 +11,7 @@ namespace HpDiagnose.Core
     /// </summary>
     public static class AkkuLeser
     {
-        public static AkkuDaten Lies()
+        public static AkkuDaten Lies(AkkuDaten? vorher = null)
         {
             var a = new AkkuDaten();
 
@@ -68,6 +68,7 @@ namespace HpDiagnose.Core
                 }
             }
 
+            a.UebernimmVerlauf(vorher);
             LiesMesswerte(a);
 
             // ---- Quelle 2: Win32_PortableBattery -------------------------
@@ -147,17 +148,28 @@ namespace HpDiagnose.Core
             var spannung = status.Zahl("Voltage");
             if (spannung is > 0) a.SpannungMv = (int)spannung.Value;
 
-            var entladen = status.Zahl("DischargeRate");
-            a.EntladeleistungMw = entladen is > 0 ? (int)entladen.Value : 0;
-
-            var laden = status.Zahl("ChargeRate");
-            a.LadeleistungMw = laden is > 0 ? (int)laden.Value : 0;
-
             var amNetz = status.JaNein("PowerOnline");
             if (amNetz.HasValue) a.AmNetz = amNetz.Value;
 
             var laedt = status.JaNein("Charging");
             if (laedt.HasValue) a.LaedtGerade = laedt.Value;
+
+            // Die Rate kommt je nach Akku und Treiber unterschiedlich an:
+            // getrennt als DischargeRate/ChargeRate, oder nur als Rate mit
+            // Vorzeichen, oder gar nicht (dann 0 oder Platzhalter).
+            int entladen = AkkuDaten.NormalisiereRate(status.Zahl("DischargeRate"));
+            int laden = AkkuDaten.NormalisiereRate(status.Zahl("ChargeRate"));
+
+            if (entladen == 0 && laden == 0 && status.Hat("Rate"))
+            {
+                var rate = status.Zahl("Rate");
+                var betrag = AkkuDaten.NormalisiereRate(rate);
+                if (rate < 0 || (a.AmNetz != true && a.LaedtGerade != true)) entladen = betrag;
+                else laden = betrag;
+            }
+
+            a.LadeleistungMw = laden;
+            a.VerbucheMessung(DateTime.Now, a.RestKapazitaetMwh, entladen, a.AmNetz);
 
             if (a.VollKapazitaetMwh is > 0 && a.RestKapazitaetMwh is > 0)
                 a.LadestandProzent = Math.Round(100.0 * a.RestKapazitaetMwh.Value / a.VollKapazitaetMwh.Value, 1);

@@ -38,7 +38,9 @@ namespace HpDiagnose.Ui
         {
             try
             {
-                Akku = AkkuLeser.Lies();
+                // Der bisherige Messverlauf wandert mit, damit die berechnete
+                // Leistungsaufnahme nicht bei jedem Takt von vorn beginnt.
+                Akku = AkkuLeser.Lies(Akku);
 
                 // Den Kapazitätsverlauf nur mitnehmen, wenn bereits ein
                 // Akkubericht vorliegt – sein Erzeugen dauert zu lange für

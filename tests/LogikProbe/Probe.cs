@@ -22,6 +22,7 @@ namespace LogikProbe
             Alterungstrend();
             Ursachenbewertung();
             HerstelldatumEntpacken();
+            Leistungsaufnahme();
 
             Console.WriteLine();
             Console.WriteLine($"Ergebnis: {_bestanden} bestanden, {_fehlgeschlagen} fehlgeschlagen.");
@@ -227,6 +228,53 @@ namespace LogikProbe
             Pruefe("Unsinnige Werte ergeben kein Datum", EntpackeUeberReflexion(0) == null);
             Pruefe("Zukünftige Jahre werden verworfen",
                 EntpackeUeberReflexion(((2090 - 1980) << 9) | (1 << 5) | 1) == null);
+        }
+
+        // ---- Leistungsaufnahme --------------------------------------------
+
+        private static void Leistungsaufnahme()
+        {
+            Abschnitt("Leistungsaufnahme aus Meldung oder Kapazitätsänderung");
+
+            Pruefe("Negative Entladerate wird als Betrag genommen", AkkuDaten.NormalisiereRate(-12500) == 12500);
+            Pruefe("Platzhalter für unbekannt ergibt 0", AkkuDaten.NormalisiereRate(unchecked((int)0x80000000)) == 0);
+            Pruefe("Fehlender Wert ergibt 0", AkkuDaten.NormalisiereRate(null) == 0);
+
+            var akku = new AkkuDaten { Vorhanden = true, VollKapazitaetMwh = 40000 };
+            var t0 = new DateTime(2026, 9, 20, 12, 0, 0);
+
+            akku.VerbucheMessung(t0, 30000, 11000, false);
+            Pruefe("Gemeldeter Wert gilt sofort", akku.EntladeleistungMw == 11000 && akku.LeistungsQuelle == "gemeldet");
+
+            // Ab jetzt meldet der Akku nichts mehr: 12 W entsprechen 200 mWh je Minute.
+            akku = new AkkuDaten { Vorhanden = true };
+            akku.VerbucheMessung(t0, 30000, 0, false);
+            Pruefe("Ohne Verlauf noch kein Wert", (akku.EntladeleistungMw ?? 0) == 0 && akku.LeistungsQuelle == "");
+
+            akku.VerbucheMessung(t0.AddSeconds(10), 29967, 0, false);
+            Pruefe("Nach zehn Sekunden noch kein Wert", (akku.EntladeleistungMw ?? 0) == 0);
+
+            akku.VerbucheMessung(t0.AddSeconds(30), 29900, 0, false);
+            Pruefe("Nach 30 Sekunden wird gerechnet",
+                akku.LeistungsQuelle == "berechnet" && Math.Abs((akku.EntladeleistungMw ?? 0) - 12000) <= 100,
+                $"{akku.EntladeleistungMw} mW");
+
+            akku.VerbucheMessung(t0.AddSeconds(35), 29900, 0, false);
+            Pruefe("Ohne neue Abnahme bleibt der berechnete Wert stehen",
+                akku.LeistungsQuelle == "berechnet" && (akku.EntladeleistungMw ?? 0) > 0);
+
+            akku.VerbucheMessung(t0.AddSeconds(300), 29000, 0, false);
+            Pruefe("Alte Punkte werden verworfen, Verlauf bleibt klein", akku.Messverlauf.Count <= 2);
+
+            akku.VerbucheMessung(t0.AddSeconds(310), 29000, 0, true);
+            Pruefe("Am Netz wird nichts berechnet und der Verlauf geleert",
+                (akku.EntladeleistungMw ?? 0) == 0 && akku.Messverlauf.Count == 0);
+
+            var folge = new AkkuDaten();
+            akku.VerbucheMessung(t0.AddSeconds(400), 29000, 0, false);
+            akku.VerbucheMessung(t0.AddSeconds(430), 28900, 0, false);
+            folge.UebernimmVerlauf(akku);
+            Pruefe("Der Verlauf lässt sich an eine neue Lesung übergeben", folge.Messverlauf.Count == akku.Messverlauf.Count);
         }
 
         /// <summary>
