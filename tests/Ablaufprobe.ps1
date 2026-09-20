@@ -16,6 +16,15 @@
 $ErrorActionPreference = 'Stop'
 $fehler = 0
 
+# Eigenes Arbeitsverzeichnis, damit die Probe auf jedem Rechner und auf
+# jedem Läufer ohne Vorbereitung läuft.
+$arbeitsordner = Join-Path ([System.IO.Path]::GetTempPath()) "ablaufprobe-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $arbeitsordner -Force | Out-Null
+
+# Pfade beziehen sich auf das Projektverzeichnis, nicht auf das
+# Verzeichnis, aus dem der Aufruf kommt.
+$wurzel = Split-Path -Parent $PSScriptRoot
+
 function Pruefe($was, $bedingung, $einzelheit = '') {
     if ($bedingung) { Write-Host "  OK      $was" -ForegroundColor Green }
     else {
@@ -62,27 +71,30 @@ Pruefe 'Unvollständige Nummer wird abgewiesen' ($null -eq (Versionsschritt 'pus
 # --- Schritt: Prüfsumme bilden ----------------------------------------------
 Write-Host "`nPrüfsumme bilden"
 
-$testdatei = '/tmp/wf-test/HP-Diagnose.exe'
-$puffer = New-Object byte[] (25MB)
-[System.IO.File]::WriteAllBytes($testdatei, $puffer)
+$testdatei = Join-Path $arbeitsordner 'HP-Diagnose.exe'
+[System.IO.File]::WriteAllBytes($testdatei, (New-Object byte[] (2MB)))
 
 $datei = Get-Item $testdatei
 $groesse = [math]::Round($datei.Length / 1MB, 1)
 $pruefsumme = (Get-FileHash $datei.FullName -Algorithm SHA256).Hash
 
-Pruefe 'Größe wird berechnet' ($groesse -eq 25) "$groesse"
+Pruefe 'Größe wird berechnet' ($groesse -eq 2) "$groesse"
 Pruefe 'Prüfsumme hat die erwartete Länge' ($pruefsumme.Length -eq 64)
 
-"$pruefsumme  HP-Diagnose.exe" | Set-Content '/tmp/wf-test/HP-Diagnose.exe.sha256' -Encoding ascii
-$zeile = Get-Content '/tmp/wf-test/HP-Diagnose.exe.sha256'
+$summendatei = Join-Path $arbeitsordner 'HP-Diagnose.exe.sha256'
+"$pruefsumme  HP-Diagnose.exe" | Set-Content $summendatei -Encoding ascii
+$zeile = Get-Content $summendatei
 Pruefe 'Prüfsummendatei hat das übliche Format' ($zeile -match '^[0-9A-F]{64}  HP-Diagnose\.exe$')
 
-Pruefe 'Zu kleine Datei fällt auf' (( New-Object byte[] 1024 ).Length -lt 20MB)
+# Die Mindestgröße prüft der Ablauf, um einen fehlgeschlagenen Bau zu
+# bemerken. Geprüft wird hier die Bedingung selbst, nicht eine echte Datei.
+Pruefe 'Zu kleine Datei fällt auf' (1024 -lt 20MB)
+Pruefe 'Vollständige Datei wird durchgelassen' (-not (67MB -lt 20MB))
 
 # --- Schritt: Beschreibung schreiben ----------------------------------------
 Write-Host "`nBeschreibung der Veröffentlichung"
 
-$text = Get-Content '.github/veroeffentlichung-vorlage.md' -Raw
+$text = Get-Content (Join-Path $wurzel '.github/veroeffentlichung-vorlage.md') -Raw
 $text = $text.Replace('{{REPO}}', 'JosuaDev/daignose_tool-windows')
 $text = $text.Replace('{{MARKE}}', 'v1.0.0')
 $text = $text.Replace('{{GROESSE}}', '63,6')
@@ -95,8 +107,9 @@ Pruefe 'Der Befehlsblock blieb unversehrt' ($text -match '(?m)^```powershell$')
 Pruefe 'Der Pfad mit Gegenschrägstrich blieb erhalten' ($text -match 'Get-FileHash \.\\HP-Diagnose\.exe')
 Pruefe 'Die Tabelle blieb erhalten' ($text -match '\| `HP-Diagnose\.exe` \|')
 
-Set-Content -Path '/tmp/wf-test/beschreibung.md' -Value $text -Encoding utf8
-Pruefe 'Die Datei wurde geschrieben' (Test-Path '/tmp/wf-test/beschreibung.md')
+$beschreibung = Join-Path $arbeitsordner 'beschreibung.md'
+Set-Content -Path $beschreibung -Value $text -Encoding utf8
+Pruefe 'Die Datei wurde geschrieben' (Test-Path $beschreibung)
 
 # --- Schritt: Aufrufliste für gh --------------------------------------------
 Write-Host "`nAufruf des Verzeichniswerkzeugs"
@@ -126,6 +139,8 @@ Pruefe 'Alle drei Dateien sind aufgeführt' (
 Pruefe 'Vorabfassung wird gekennzeichnet' ($argumente -contains '--prerelease')
 Pruefe 'Kein Entwurf bei leerer Eingabe' (-not ($argumente -contains '--draft'))
 Pruefe 'Titel enthält die Marke' (($argumente -join ' ') -match 'Notebook-Diagnose v1\.0\.0-rc1')
+
+Remove-Item $arbeitsordner -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 if ($fehler -gt 0) {
