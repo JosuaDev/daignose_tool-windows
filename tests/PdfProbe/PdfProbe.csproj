@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Prüfprojekt für den Berichtsaufbau.
+       Es bindet nur die plattformunabhängigen Dateien ein, damit sich das
+       Layout ohne Windows-Gerät erzeugen und begutachten lässt. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>PdfProbe</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/HpDiagnose/Core/Report/Pdf.cs" />
+    <Compile Include="../../src/HpDiagnose/Core/Report/Berichtsdaten.cs" />
+    <Compile Include="../../src/HpDiagnose/Core/Report/Berichtersteller.cs" />
+    <Compile Include="Probe.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

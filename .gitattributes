@@ -1,0 +1,13 @@
+# Zeilenenden automatisch behandeln; Quelldateien im Arbeitsverzeichnis
+# unter Windows mit CRLF, im Verzeichnisbaum einheitlich mit LF.
+* text=auto
+
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.manifest text eol=crlf
+*.yml text eol=lf
+*.md text eol=lf
+
+*.ico binary
+*.exe binary
+*.pdf binary

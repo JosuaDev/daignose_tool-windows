@@ -1,0 +1,9 @@
+# Erzeugnisse des Übersetzungsvorgangs
+bin/
+obj/
+build/
+*.user
+
+# Ergebnisse von Probeläufen
+*.pdf
+!docs/**/*.pdf
