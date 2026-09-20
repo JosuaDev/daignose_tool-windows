@@ -1,0 +1,196 @@
+name: Veröffentlichung
+
+# Baut die ausführbare Datei, prüft sie und stellt sie als Veröffentlichung
+# zum Herunterladen bereit.
+#
+# Zwei Wege, das auszulösen:
+#   1. Eine Marke setzen und hochladen:
+#        git tag v1.0.0 && git push origin v1.0.0
+#   2. Von Hand über Actions – Veröffentlichung – Workflow ausführen,
+#      dort die Versionsnummer eintragen.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versionsnummer ohne v, zum Beispiel 1.0.0"
+        required: true
+        type: string
+      entwurf:
+        description: "Als Entwurf anlegen statt sofort zu veröffentlichen"
+        required: false
+        type: boolean
+        default: false
+
+# Zum Anlegen der Veröffentlichung wird Schreibrecht auf das Verzeichnis gebraucht.
+permissions:
+  contents: write
+
+jobs:
+  veroeffentlichen:
+    name: Bauen und veröffentlichen
+    runs-on: windows-latest
+
+    steps:
+      - name: Quelltext holen
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: .NET einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Versionsnummer bestimmen
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+              $version = '${{ inputs.version }}'.TrimStart('v')
+          } else {
+              $version = '${{ github.ref_name }}'.TrimStart('v')
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+([.-].+)?$') {
+              Write-Error "Die Versionsnummer '$version' passt nicht zum Muster 1.2.3."
+              exit 1
+          }
+
+          # Eine Version mit Bindestrich gilt als Vorabfassung, etwa 1.0.0-rc1
+          $vorab = $version.Contains('-')
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "marke=v$version"  >> $env:GITHUB_OUTPUT
+          "vorab=$($vorab.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Version: $version"
+          if ($vorab) { Write-Host "Wird als Vorabfassung gekennzeichnet." }
+
+      - name: Auswertungslogik prüfen
+        shell: pwsh
+        run: |
+          dotnet run --project tests/LogikProbe -c Release
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Die Logikprüfung ist fehlgeschlagen – es wird nichts veröffentlicht."
+              exit 1
+          }
+
+      - name: Beispielbericht erzeugen
+        shell: pwsh
+        run: |
+          dotnet run --project tests/PdfProbe -c Release -- Beispielbericht.pdf
+          if (-not (Test-Path 'Beispielbericht.pdf')) {
+              Write-Error "Der Beispielbericht wurde nicht erzeugt."
+              exit 1
+          }
+
+      - name: Programm bauen
+        shell: pwsh
+        run: |
+          # Die Dateiversion von Windows verträgt nur Zahlen, deshalb wird
+          # ein möglicher Zusatz wie -rc1 dafür abgeschnitten.
+          $version = '${{ steps.version.outputs.version }}'
+          $zahlen = $version.Split('-')[0]
+
+          dotnet publish src/HpDiagnose/HpDiagnose.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=$version `
+            -p:FileVersion=$zahlen `
+            -p:AssemblyVersion=$zahlen `
+            -o build
+
+          if (-not (Test-Path 'build/HP-Diagnose.exe')) {
+              Write-Error "Die ausführbare Datei wurde nicht erzeugt."
+              exit 1
+          }
+
+      - name: Datei prüfen und Prüfsumme bilden
+        id: pruefen
+        shell: pwsh
+        run: |
+          $datei = Get-Item 'build/HP-Diagnose.exe'
+          $groesse = [math]::Round($datei.Length / 1MB, 1)
+          $pruefsumme = (Get-FileHash $datei.FullName -Algorithm SHA256).Hash
+
+          # Eine unbrauchbar kleine Datei deutet auf einen fehlgeschlagenen Bau hin.
+          if ($datei.Length -lt 20MB) {
+              Write-Error "Die Datei ist mit $groesse MB unerwartet klein."
+              exit 1
+          }
+
+          "$pruefsumme  HP-Diagnose.exe" | Set-Content 'build/HP-Diagnose.exe.sha256' -Encoding ascii
+
+          "groesse=$groesse" >> $env:GITHUB_OUTPUT
+          "pruefsumme=$pruefsumme" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Größe: $groesse MB"
+          Write-Host "SHA256: $pruefsumme"
+
+      - name: Beschreibung der Veröffentlichung schreiben
+        shell: pwsh
+        run: |
+          # Der Text steht in einer eigenen Vorlage, damit die Ablaufdatei
+          # übersichtlich bleibt und der Text ohne Rücksicht auf
+          # Maskierungsregeln bearbeitet werden kann.
+          $text = Get-Content '.github/veroeffentlichung-vorlage.md' -Raw
+
+          $text = $text.Replace('{{REPO}}', '${{ github.repository }}')
+          $text = $text.Replace('{{MARKE}}', '${{ steps.version.outputs.marke }}')
+          $text = $text.Replace('{{GROESSE}}', '${{ steps.pruefen.outputs.groesse }}')
+          $text = $text.Replace('{{PRUEFSUMME}}', '${{ steps.pruefen.outputs.pruefsumme }}')
+
+          if ($text -match '\{\{') {
+              Write-Error "In der Beschreibung ist ein Platzhalter übrig geblieben."
+              exit 1
+          }
+
+          Set-Content -Path beschreibung.md -Value $text -Encoding utf8
+          Write-Host "Beschreibung erstellt, $($text.Length) Zeichen."
+
+      - name: Veröffentlichung anlegen
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $marke = '${{ steps.version.outputs.marke }}'
+          $entwurf = '${{ inputs.entwurf }}' -eq 'true'
+
+          $argumente = @(
+              'release', 'create', $marke,
+              'build/HP-Diagnose.exe',
+              'build/HP-Diagnose.exe.sha256',
+              'Beispielbericht.pdf',
+              '--title', "Notebook-Diagnose $marke",
+              '--notes-file', 'beschreibung.md'
+          )
+
+          if ($entwurf) { $argumente += '--draft' }
+          if ('${{ steps.version.outputs.vorab }}' -eq 'true') { $argumente += '--prerelease' }
+
+          # Bei einem erneuten Lauf für dieselbe Marke die alte Veröffentlichung ersetzen
+          $vorhanden = gh release view $marke 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              Write-Host "Veröffentlichung $marke besteht bereits und wird ersetzt."
+              gh release delete $marke --yes
+          }
+
+          gh release create @argumente
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Die Veröffentlichung konnte nicht angelegt werden."
+              exit 1
+          }
+
+          Write-Host "Fertig: https://github.com/${{ github.repository }}/releases/tag/$marke"
+
+      - name: Ergebnis zusätzlich als Artefakt ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: HP-Diagnose-${{ steps.version.outputs.version }}
+          path: |
+            build/HP-Diagnose.exe
+            build/HP-Diagnose.exe.sha256
+            Beispielbericht.pdf

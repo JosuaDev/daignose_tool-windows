@@ -145,6 +145,21 @@ Ersatzteile mit Bezugsquellen, alle Einzelbefunde und das Ablaufprotokoll.
 
 ---
 
+## Herunterladen
+
+Die fertige Datei liegt unter
+[Releases](../../releases) — dort `HP-Diagnose.exe` herunterladen.
+
+Beim ersten Start zeigt Windows den blauen Hinweis *„Der Computer wurde durch
+Windows geschützt"*. Das liegt daran, dass die Datei nicht mit einem gekauften
+Zertifikat signiert ist, und sagt nichts über ihren Inhalt aus. Über
+**Weitere Informationen** und dann **Trotzdem ausführen** startet das Programm.
+Wer sichergehen möchte, vergleicht die mitgelieferte Prüfsumme:
+
+```powershell
+Get-FileHash .\HP-Diagnose.exe -Algorithm SHA256
+```
+
 ## Benutzung
 
 1. `HP-Diagnose.exe` auf das betroffene Notebook kopieren (USB-Stick genügt).
@@ -222,6 +237,36 @@ cd tests/PdfProbe   && dotnet run -c Release    # Beispielbericht erzeugen
 
 Die Prüfungen laufen ohne Windows-Gerät und decken die Akkubewertung, die
 Alterungsprognose, die Ursachengewichtung und den Berichtsaufbau ab.
+
+---
+
+## Neue Fassung veröffentlichen
+
+Zwei Arbeitsabläufe sind eingerichtet:
+
+| Ablauf | Wann er läuft | Was er tut |
+|---|---|---|
+| `build.yml` | bei jedem Hochladen und jedem Pull Request | prüft die Logik, erzeugt einen Beispielbericht und baut die EXE als Artefakt |
+| `release.yml` | bei einer Marke `v*` oder von Hand | baut, prüft, bildet die Prüfsumme und legt eine Veröffentlichung mit allen Dateien an |
+
+**Über eine Marke:**
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+**Von Hand:** Im Verzeichnis unter *Actions* den Ablauf *Veröffentlichung*
+wählen, *Run workflow* anklicken und die Versionsnummer eintragen. Auf Wunsch
+lässt sich die Veröffentlichung zunächst als Entwurf anlegen.
+
+Eine Versionsnummer mit Bindestrich, etwa `1.1.0-rc1`, wird selbsttätig als
+Vorabfassung gekennzeichnet.
+
+Der Beschreibungstext der Veröffentlichung steht in
+`.github/veroeffentlichung-vorlage.md` und lässt sich dort frei anpassen; die
+Platzhalter in doppelten geschweiften Klammern setzt der Ablauf ein. Die
+Änderungen einer Fassung gehören in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
