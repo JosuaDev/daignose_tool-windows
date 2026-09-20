@@ -140,6 +140,19 @@ Pruefe 'Vorabfassung wird gekennzeichnet' ($argumente -contains '--prerelease')
 Pruefe 'Kein Entwurf bei leerer Eingabe' (-not ($argumente -contains '--draft'))
 Pruefe 'Titel enthält die Marke' (($argumente -join ' ') -match 'Notebook-Diagnose v1\.0\.0-rc1')
 
+# --- Schritt: Suche nach alten Entwürfen ------------------------------------
+Write-Host "`nSuche nach alten Entwürfen"
+
+# Der jq-Filter muss die Marke in doppelten Anführungszeichen enthalten und
+# als ein einziges Argument bei gh ankommen. Ein \" in einer doppelt
+# umschlossenen PowerShell-Zeichenkette zerlegt ihn stattdessen in zwei.
+$filter = '.[] | select(.draft and .tag_name == "' + $marke + '") | .id'
+
+Pruefe 'Der Filter enthält die Marke in Anführungszeichen' ($filter.Contains('.tag_name == "v1.0.0-rc1"')) $filter
+Pruefe 'Der Filter enthält keinen Gegenschrägstrich' (-not $filter.Contains('\'))
+Pruefe 'Der Filter ist ein einzelnes Argument' (@($filter).Count -eq 1)
+Pruefe 'Der Filter wählt nur Entwürfe' ($filter -match 'select\(\.draft and ')
+
 Remove-Item $arbeitsordner -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""

@@ -180,16 +180,19 @@ jobs:
           # Entwürfe tragen noch keine Marke und sind für "gh release view"
           # unsichtbar, deshalb werden sie über die Schnittstelle gesucht.
           # Die Marke selbst bleibt bestehen, denn sie hat den Lauf ausgelöst.
-          try {
-              $entwuerfe = gh api "repos/${{ github.repository }}/releases?per_page=100" `
-                  --jq ".[] | select(.draft and .tag_name == \"$marke\") | .id"
+          # Der Filter wird aus einfach umschlossenen Teilen zusammengesetzt,
+          # weil PowerShell in doppelten Anführungszeichen keine \" kennt.
+          $filter = '.[] | select(.draft and .tag_name == "' + $marke + '") | .id'
+          $entwuerfe = gh api "repos/${{ github.repository }}/releases?per_page=100" --jq $filter
 
-              foreach ($id in ($entwuerfe -split "`r?`n" | Where-Object { $_ -match '^\d+$' })) {
-                  Write-Host "Alter Entwurf $id zur Marke $marke wird entfernt."
-                  gh api -X DELETE "repos/${{ github.repository }}/releases/$id" | Out-Null
-              }
-          } catch {
-              Write-Host "Suche nach alten Entwürfen übersprungen: $($_.Exception.Message)"
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "Suche nach alten Entwürfen übersprungen, gh meldete Fehler $LASTEXITCODE."
+              $entwuerfe = ''
+          }
+
+          foreach ($id in ($entwuerfe -split "`r?`n" | Where-Object { $_ -match '^\d+$' })) {
+              Write-Host "Alter Entwurf $id zur Marke $marke wird entfernt."
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id" | Out-Null
           }
 
           gh release view $marke *> $null
