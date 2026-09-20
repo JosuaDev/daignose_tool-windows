@@ -279,7 +279,9 @@ namespace HpDiagnose.Ui.Pages
             Zeile("Aktuelle Restladung", AkkuLeser.MwhText(akku.RestKapazitaetMwh));
             Zeile("Nennspannung", akku.DesignSpannungMv is > 0 ? $"{akku.DesignSpannungMv / 1000.0:0.00} V" : "");
             Zeile("Aktuelle Spannung", akku.SpannungMv is > 0 ? $"{akku.SpannungMv / 1000.0:0.00} V" : "");
-            Zeile("Leistungsaufnahme", akku.EntladeleistungMw is > 0 ? $"{akku.EntladeleistungMw / 1000.0:0.#} W" : "");
+            Zeile("Leistungsaufnahme", akku.EntladeleistungMw is > 0
+                ? $"{akku.EntladeleistungMw / 1000.0:0.#} W" + (akku.LeistungsQuelle == "berechnet" ? " (aus der Kapazitätsänderung berechnet)" : "")
+                : akku.AmNetz == true ? "" : "vom Akku nicht gemeldet – wird nach etwa einer Minute aus der Kapazitätsänderung berechnet");
             Zeile("Ladeleistung", akku.LadeleistungMw is > 0 ? $"{akku.LadeleistungMw / 1000.0:0.#} W" : "");
             Zeile("Geschätzte Restlaufzeit", akku.RestlaufzeitStunden is double r ? $"{r:0.#} Stunden" : "");
             Zeile("Datenquellen", string.Join(", ", akku.Quellen.Distinct()));
@@ -492,14 +494,16 @@ namespace HpDiagnose.Ui.Pages
             {
                 var minute = m.Sekunden / 60.0;
                 ladung.Punkte.Add((minute, m.Prozent));
-                leistung.Punkte.Add((minute, m.LeistungMw / 1000.0));
+                if (m.LeistungMw > 0) leistung.Punkte.Add((minute, m.LeistungMw / 1000.0));
 
                 _testkurve.AchseUnten = $"{minute:0.#} Minuten";
                 _testkurve.Invalidate();
 
                 _testStatus.Text =
                     $"Laufzeit {minute:0.#} Minuten · Ladestand {m.Prozent:0.#} Prozent · " +
-                    $"Leistungsaufnahme {m.LeistungMw / 1000.0:0.#} Watt · " +
+                    (m.LeistungMw > 0
+                        ? $"Leistungsaufnahme {m.LeistungMw / 1000.0:0.#} Watt · "
+                        : "Leistungsaufnahme wird aus der Kapazitätsänderung berechnet … · ") +
                     $"Spannung {m.SpannungMv / 1000.0:0.00} Volt";
 
                 if (m.Last != null)
@@ -527,7 +531,8 @@ namespace HpDiagnose.Ui.Pages
                         $"Prozentpunkte verbraucht ({ergebnis.MwhVerbraucht} mWh).");
 
                     if (ergebnis.MittlereLeistungMw > 0)
-                        zusammenfassung.Add($"Mittlere Leistungsaufnahme: {ergebnis.MittlereLeistungMw / 1000.0:0.#} Watt.");
+                        zusammenfassung.Add($"Mittlere Leistungsaufnahme: {ergebnis.MittlereLeistungMw / 1000.0:0.#} Watt" +
+                                            (ergebnis.LeistungsQuelle == "berechnet" ? " (aus der Kapazitätsänderung berechnet)." : "."));
 
                     if (ergebnis.SpannungsEinbruchMv > 0)
                         zusammenfassung.Add(

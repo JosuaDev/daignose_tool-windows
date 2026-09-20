@@ -3,6 +3,20 @@
 Diese Datei hält fest, was sich zwischen den Fassungen geändert hat.
 Die Versionsnummern folgen dem Muster `HAUPT.NEBEN.KORREKTUR`.
 
+## 1.1.1
+
+### Akku
+
+* Die Leistungsaufnahme wird jetzt auch dann angezeigt, wenn der Akku sie
+  nicht selbst meldet: Sie wird aus dem Rückgang der Restkapazität über die
+  letzten Minuten berechnet und in Anzeige, Befund und Bericht als „berechnet"
+  gekennzeichnet. Negativ gemeldete Raten und der Platzhalter für „unbekannt"
+  werden richtig behandelt.
+* Der Belastungstest bildet ohne Einzelwerte die Bilanz über die Laufzeit;
+  die Kurve zeigt dann den Mittelwert.
+* Neuer Hinweisbefund, wenn der Akku keine Rate meldet – mit Erklärung, dass
+  das kein Akkufehler ist.
+
 ## 1.1.0
 
 ### Belastungstest

@@ -62,6 +62,10 @@ Bauteile beteiligt sind, lässt sich wählen:
 | **Datenträger** | 512 MB Zufallsdaten werden geschrieben, zurückgelesen und über Prüfsummen verglichen. Nach 4 GB Schreibleistung wird nur noch gelesen, um Flash-Zellen zu schonen. Die Datei wird danach gelöscht. |
 | **Bildschirm** | Volle Helligkeit, Energiesparen unterbunden; der vorherige Wert wird nach dem Test wiederhergestellt. |
 
+Meldet der Akku seine Entladeleistung nicht selbst (bei manchen Treibern kommt
+dort nur 0 oder ein Platzhalter an), wird sie aus dem Rückgang der Restkapazität
+über die letzten Minuten berechnet und überall als „berechnet" gekennzeichnet.
+
 Der Test zeigt laufend, welche Last tatsächlich anliegt (Auslastung durch den
 Test, Speicherdurchsatz, geschriebene und gelesene Datenmenge) und bricht ab,
 wenn das Gerät zu heiß wird. Er zeichnet Ladestand, Leistungsaufnahme und

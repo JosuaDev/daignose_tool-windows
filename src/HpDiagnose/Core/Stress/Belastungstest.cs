@@ -47,6 +47,12 @@ namespace HpDiagnose.Core.Stress
         /// <summary>Höchste während des Tests gemessene Temperatur, falls lesbar.</summary>
         public double? HoechsteTemperatur { get; set; }
 
+        /// <summary>
+        /// Woher die Leistungswerte stammen: "gemeldet" vom Akku, "berechnet"
+        /// aus dem Kapazitätsverlauf, oder "" wenn beides fehlte.
+        /// </summary>
+        public string LeistungsQuelle { get; set; } = "";
+
         public DateTime Beginn { get; set; }
         public DateTime Ende { get; set; }
         public List<Stressmessung> Messreihe { get; } = new List<Stressmessung>();
@@ -304,6 +310,21 @@ namespace HpDiagnose.Core.Stress
             {
                 e.MittlereLeistungMw = (int)leistungen.Average();
                 e.HoechsteLeistungMw = leistungen.Max();
+                e.LeistungsQuelle = akku.LeistungsQuelle == "berechnet" ? "berechnet" : "gemeldet";
+            }
+
+            // Ohne Einzelwerte bleibt die Bilanz über den ganzen Test: Was an
+            // Kapazität verschwunden ist, geteilt durch die Laufzeit.
+            var stundenGesamt = (e.Ende - e.Beginn).TotalHours;
+            if (e.MittlereLeistungMw == 0 && e.MwhVerbraucht > 0 && stundenGesamt > 0)
+            {
+                e.MittlereLeistungMw = (int)Math.Round(e.MwhVerbraucht / stundenGesamt);
+                e.HoechsteLeistungMw = e.MittlereLeistungMw;
+                e.LeistungsQuelle = "berechnet";
+
+                // Damit die Kurve im Bericht nicht bei null liegt, bekommt jeder
+                // Messpunkt den Mittelwert.
+                foreach (var m in e.Messreihe) m.LeistungMw = e.MittlereLeistungMw;
             }
 
             // Spannung im Leerlauf gegen Spannung unter Last: Die Differenz ist
@@ -369,6 +390,12 @@ namespace HpDiagnose.Core.Stress
                 .MitMesswert("Verbrauch", $"{e.ProzentVerbraucht:0.#} Prozentpunkte / {e.MwhVerbraucht} mWh")
                 .MitMesswert("Mittlere Leistung", $"{e.MittlereLeistungMw} mW")
                 .MitMesswert("Höchste Leistung", $"{e.HoechsteLeistungMw} mW")
+                .MitMesswert("Leistungswerte", e.LeistungsQuelle switch
+                {
+                    "berechnet" => "aus dem Rückgang der Restkapazität berechnet – der Akku meldet keine Rate",
+                    "gemeldet" => "vom Akku gemeldet",
+                    _ => "nicht verfügbar"
+                })
                 .MitMesswert("Abschluss", e.Abbruchgrund);
 
             if (e.Last != null)
