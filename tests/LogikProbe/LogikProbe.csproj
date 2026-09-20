@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Prüft die Auswertungslogik ohne Windows-Gerät:
+       Akkubewertung, Alterungstrend und Ursachenbewertung. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>LogikProbe</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/HpDiagnose/Core/Finding.cs" />
+    <Compile Include="../../src/HpDiagnose/Core/AkkuDaten.cs" />
+    <Compile Include="../../src/HpDiagnose/Core/Battery/Akkuzustand.cs" />
+    <Compile Include="../../src/HpDiagnose/Core/Diagnosis/Ursachen.cs" />
+    <Compile Include="Probe.cs" />
+  </ItemGroup>
+
+</Project>

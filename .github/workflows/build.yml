@@ -1,0 +1,57 @@
+name: Programm bauen
+
+# Baut die ausführbare Datei und prüft die Auswertungslogik.
+# Das Ergebnis steht als Artefakt zum Herunterladen bereit.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pruefen:
+    name: Auswertungslogik prüfen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Logikprüfung
+        run: dotnet run --project tests/LogikProbe -c Release
+
+      - name: Beispielbericht erzeugen
+        run: dotnet run --project tests/PdfProbe -c Release -- Beispielbericht.pdf
+
+      - name: Beispielbericht ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Beispielbericht
+          path: Beispielbericht.pdf
+
+  bauen:
+    name: Ausführbare Datei bauen
+    runs-on: windows-latest
+    needs: pruefen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Veröffentlichen
+        run: >
+          dotnet publish src/HpDiagnose/HpDiagnose.csproj
+          -c Release -r win-x64 --self-contained true -o build
+
+      - name: Ergebnis ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: HP-Diagnose
+          path: build/HP-Diagnose.exe
