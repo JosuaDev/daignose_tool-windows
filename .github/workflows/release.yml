@@ -79,6 +79,12 @@ jobs:
               exit 1
           }
 
+          dotnet run --project tests/Lastprobe -c Release
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Die Prüfung des Lasterzeugers ist fehlgeschlagen – es wird nichts veröffentlicht."
+              exit 1
+          }
+
       - name: Beispielbericht erzeugen
         shell: pwsh
         run: |

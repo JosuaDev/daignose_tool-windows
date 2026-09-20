@@ -24,6 +24,9 @@ jobs:
       - name: Logikprüfung
         run: dotnet run --project tests/LogikProbe -c Release
 
+      - name: Lasterzeuger prüfen
+        run: dotnet run --project tests/Lastprobe -c Release
+
       - name: Beispielbericht erzeugen
         run: dotnet run --project tests/PdfProbe -c Release -- Beispielbericht.pdf
 

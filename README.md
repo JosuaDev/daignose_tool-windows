@@ -52,7 +52,19 @@ richtig, und der danach gemessene Kapazitätswert ist verlässlich.
 ### Belastungstest
 
 Misst, was der Akku unter echter Last leistet: Leerlauf, Volllast oder
-Alltagsbetrieb im Wechsel. Der Test zeichnet Ladestand, Leistungsaufnahme und
+Alltagsbetrieb im Wechsel. Die Last erzeugt das Programm selbst, und welche
+Bauteile beteiligt sind, lässt sich wählen:
+
+| Bauteil | Was passiert |
+|---|---|
+| **Prozessor** | Alle Kerne rechnen ohne Pause: Gleitkomma, Vektorrechnung (SSE/AVX) und Ganzzahlmischen im Wechsel. |
+| **Arbeitsspeicher** | Bis zu 2 GB (höchstens ein Viertel des freien Speichers) werden fortlaufend mit Mustern beschrieben und zurückgelesen. |
+| **Datenträger** | 512 MB Zufallsdaten werden geschrieben, zurückgelesen und über Prüfsummen verglichen. Nach 4 GB Schreibleistung wird nur noch gelesen, um Flash-Zellen zu schonen. Die Datei wird danach gelöscht. |
+| **Bildschirm** | Volle Helligkeit, Energiesparen unterbunden; der vorherige Wert wird nach dem Test wiederhergestellt. |
+
+Der Test zeigt laufend, welche Last tatsächlich anliegt (Auslastung durch den
+Test, Speicherdurchsatz, geschriebene und gelesene Datenmenge) und bricht ab,
+wenn das Gerät zu heiß wird. Er zeichnet Ladestand, Leistungsaufnahme und
 Spannung als Kurve auf und ermittelt:
 
 * die **hochgerechnete Gesamtlaufzeit** — reicht sie für eine dreistündige Sitzung?
@@ -203,11 +215,12 @@ src/HpDiagnose/
     Platform/                 WMI, powercfg, Ereignisprotokoll, Registrierung
     Report/                   PDF-Erzeugung und Berichtsaufbau
     Selftest/                 Aktive Hardwaretests
-    Stress/                   Belastungstest des Akkus
+    Stress/                   Belastungstest des Akkus und Lasterzeuger
   Ui/                         Oberfläche: Design, Bausteine, sieben Seiten
 
 tests/
   LogikProbe/                 Prüft Bewertung und Ursachenlogik ohne Gerät
+  Lastprobe/                  Lässt den Lasterzeuger zehn Sekunden echt laufen
   PdfProbe/                   Erzeugt einen Beispielbericht zur Layoutprüfung
 ```
 
@@ -232,6 +245,7 @@ Der Bau funktioniert auch auf Linux, weil das Projekt die Windows-Bausteine
 
 ```bash
 cd tests/LogikProbe && dotnet run -c Release    # Bewertungslogik
+cd tests/Lastprobe  && dotnet run -c Release    # Lasterzeuger: Prozessor, Speicher, Datenträger
 cd tests/PdfProbe   && dotnet run -c Release    # Beispielbericht erzeugen
 pwsh -File tests/Ablaufprobe.ps1                # Schritte des Veröffentlichungsablaufs
 ```
