@@ -171,14 +171,21 @@ jobs:
           if ($entwurf) { $argumente += '--draft' }
           if ('${{ steps.version.outputs.vorab }}' -eq 'true') { $argumente += '--prerelease' }
 
-          # Bei einem erneuten Lauf für dieselbe Marke die alte Veröffentlichung ersetzen
-          $vorhanden = gh release view $marke 2>$null
+          # Bei einem erneuten Lauf für dieselbe Marke die alte Veröffentlichung
+          # entfernen. Die Marke selbst bleibt bestehen, denn sie hat den Lauf
+          # ausgelöst. Alle Ausgaben werden verworfen, weil ein fehlender
+          # Eintrag hier der Normalfall ist.
+          gh release view $marke *> $null
           if ($LASTEXITCODE -eq 0) {
               Write-Host "Veröffentlichung $marke besteht bereits und wird ersetzt."
               gh release delete $marke --yes
           }
 
-          gh release create @argumente
+          # Die Unterbefehle stehen bereits in der Liste, deshalb wird sie
+          # vollständig an gh übergeben.
+          Write-Host "Aufruf: gh $($argumente -join ' ')"
+          gh @argumente
+
           if ($LASTEXITCODE -ne 0) {
               Write-Error "Die Veröffentlichung konnte nicht angelegt werden."
               exit 1

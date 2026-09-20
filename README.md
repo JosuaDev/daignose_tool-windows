@@ -233,6 +233,7 @@ Der Bau funktioniert auch auf Linux, weil das Projekt die Windows-Bausteine
 ```bash
 cd tests/LogikProbe && dotnet run -c Release    # Bewertungslogik
 cd tests/PdfProbe   && dotnet run -c Release    # Beispielbericht erzeugen
+pwsh -File tests/Ablaufprobe.ps1                # Schritte des Veröffentlichungsablaufs
 ```
 
 Die Prüfungen laufen ohne Windows-Gerät und decken die Akkubewertung, die
